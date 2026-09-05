@@ -54,8 +54,11 @@
 
 ## 3. Проект №0 — `taskflow-cli-core` (АКТИВЕН)
 
-- **Назначение:** консольный движок управления задачами и трекинга времени: файловый персистенс, строгая валидация, фильтрация, отчёты по затраченному времени, покрытие тестами ≥80%.
-- **Почему не «обычный todo-list» (фильтр «не клон»):** доменная логика — учёт времени, приоритеты с дедлайнами, переходы состояний через конечный автомат, импорт/экспорт, детерминированные отчёты. Это бизнес-логика, а не CRUD-игрушка.
+- **Назначение (пересмотрено 05.09.2026 после ревью):** консольный **движок учёта рабочего времени**: сессии `start/stop`, отчёты по дням/неделям в разрезе задач и тегов, CSV-экспорт, файловый персистенс с атомарной записью и блокировкой, строгая валидация типов, префиксный поиск по ID. Управление задачами — средство, а не цель.
+- **Почему пересмотрено:** в предоставленном «архитектурном разборе» тайм-трекинг заявлен, но в коде отсутствует (нет ни одного поля времени в модели `Task`, `stats` считает только количество задач). Без учёта времени это todo-list — домен, который карьерные гайды прямо относят к «делают все джуны». Доказательство: `mentor/reviews/2026-09-05-taskflow-cli-core.md` §C6, зонд 14.
+- **Почему не «обычный todo-list» (фильтр «не клон»):** доменная логика времени (сессии, пересечения, округление, отчёты по периодам), конечный автомат статусов, конкурентная запись под блокировкой, версионирование формата файла, машинный вывод `--json`.
+- **Результат ревью 05.09.2026:** архитектура верная (4 слоя, DI хранилища), код не проходит middle-ревью — **22 подтверждённых дефекта**, 3 критических (потеря данных при конкурентной записи: 8 из 10 задач после стресса; `flush()` без `fsync` при заявленной защите от сбоя питания; `except Exception`, выдающий `Permission denied` за «повреждённое хранилище»). Метрики документа («91% (22 passed)») сфабрикованы — тестов не существует, реальный coverage чужим зондовым набором 72%.
+- **Оценка для портфолио:** сейчас **3/10**; после закрытия P0 + тайм-трекинга **6/10**. Как тренажёр — **9/10**.
 - **Стек:** Python 3.11+, `dataclasses`, `enum`, `pathlib`, `json`, `argparse`, `logging`, `pytest`, GitHub Actions, `ruff`.
 - **Репозиторий:** `morikifa/taskflow-cli-core` — **отдельный публичный репозиторий** (решение ученика от 05.09.2026, расхождение R3 закрыто). `python-core-practice` остаётся тренажёром и памятью наставника.
 - **Статус на 05.09.2026:** **5%** — есть только утверждённая структура папок и план. Кода в Git нет. Продакшн-признаки: 0 из 10 (Docker для CLI исключён из обязательных — R2).
@@ -105,17 +108,25 @@ taskflow-cli-core/
 └── README.md
 ```
 
-### Очередь реализации (атомарные коммиты)
-| # | Шаг | Файлы | Коммит | Проверка понимания (Gate) |
-| :-- | :--- | :--- | :--- | :--- |
-| 1 | Каркас + конфиг | `.gitignore`, `pyproject.toml`, `README.md` | `chore: project skeleton and tooling config` | G2 |
-| 2 | Доменные модели | `models.py` | `feat: task domain models with enums and validation` | G3 |
-| 3 | Тесты моделей | `tests/test_models.py` | `test: cover task model validation and state transitions` | G4 |
-| 4 | Хранилище | `storage.py` | `feat: json storage with atomic write via pathlib` | G5 |
-| 5 | Сервисный слой | `service.py` | `feat: task service with filtering and time tracking` | G6 |
-| 6 | CLI | `cli.py` | `feat: argparse cli with add/list/done/report commands` | G7 |
-| 7 | CI | `.github/workflows/ci.yml` | `ci: ruff lint and pytest with coverage on push and PR` | G8 |
-| 8 | Логирование | `src/taskflow/logging_conf.py` | `feat: structured logging instead of print` | G9 |
+### Очередь реализации (атомарные коммиты) — пересмотрена 05.09.2026 по итогам ревью
+Порядок изменён: сначала домен времени (иначе это todo-list), потом надёжность хранилища, потом CLI, потом упаковка. Полный список дефектов и приоритетов P0/P1/P2 — в `mentor/reviews/2026-09-05-taskflow-cli-core.md` §7.
+
+| # | Шаг | Файлы | Коммит | Gate |
+| :-- | :--- | :--- | :--- | :--: |
+| 1 | Каркас + конфиг (`requires-python = ">=3.11"`) | `.gitignore`, `pyproject.toml`, `README.md` | `chore: project skeleton and tooling config` | G2 |
+| 2 | Иерархия исключений **без широких `except`** | `exceptions.py` | `feat: domain exception hierarchy` | G3 |
+| 3 | Модели: `Task`, `TimeEntry`, Enum, валидация **типов** (не `str()`-коэрция), `schema_version` | `models.py` | `feat: task and time entry models with strict validation` | G4 |
+| 4 | Тесты моделей + edge cases (`None`, список вместо строки, битый Enum, пустой заголовок) | `tests/test_models.py` | `test: model validation and edge cases` | G5 |
+| 5 | Хранилище: атомарная запись + `os.fsync` + `flock` + cleanup `.tmp` + права 0644 | `storage.py` | `feat: json storage with atomic write, fsync and file locking` | G6 |
+| 6 | Тест хранилища: битый JSON, `chmod 000`, **конкурентная запись двумя процессами** | `tests/test_storage.py` | `test: storage corruption, permissions and concurrent writes` | G7 |
+| 7 | Сервис: CRUD + FSM переходов + сессии времени + отчёты; **один `load_all()` на операцию** | `service.py` | `feat: task service with time tracking and state machine` | G8 |
+| 8 | CLI: разбить на `parser.py` / `render.py` / `main.py`; `isatty()`+`NO_COLOR`; `--json`; `--storage` через `parents=` | `cli.py`, `parser.py`, `render.py` | `feat: argparse cli with no-color and json output` | G9 |
+| 9 | Логирование: `setup_logging()` вызывается только из `main()` | `logging_conf.py` | `feat: explicit logging setup instead of import-time basicConfig` | G10 |
+| 10 | CI: ruff + pytest, `--cov-fail-under` = фактическое значение −5 п.п. | `.github/workflows/ci.yml` | `ci: ruff lint and pytest with coverage on push and PR` | G11 |
+| 11 | ADR-0001 (JSON vs SQLite), ADR-0002 (блокировка файла), README с разделом «Ограничения» | `docs/adr/*.md`, `README.md` | `docs: adr records, readme case and known limitations` | G12 |
+| 12 | Dockerfile multi-stage non-root — **только если собран и проверен на своей машине**; иначе не писать о нём в README | `Dockerfile` | `build: multi-stage dockerfile with non-root user` | G13 |
+
+**Запрещено:** пушить всё в `main`. Каждый шаг — feature-ветка + PR (иначе пункт «Git: ветки, PR» из требований рынка не засчитывается).
 
 ### Темы для изучения ПАРАЛЛЕЛЬНО (не больше 2 за раз — принцип №10)
 **Сейчас (неделя 4):** (1) `dataclasses` + `typing`; (2) `pathlib` + `json` сериализация.
