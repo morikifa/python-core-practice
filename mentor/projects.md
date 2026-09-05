@@ -57,8 +57,32 @@
 - **Назначение:** консольный движок управления задачами и трекинга времени: файловый персистенс, строгая валидация, фильтрация, отчёты по затраченному времени, покрытие тестами ≥80%.
 - **Почему не «обычный todo-list» (фильтр «не клон»):** доменная логика — учёт времени, приоритеты с дедлайнами, переходы состояний через конечный автомат, импорт/экспорт, детерминированные отчёты. Это бизнес-логика, а не CRUD-игрушка.
 - **Стек:** Python 3.11+, `dataclasses`, `enum`, `pathlib`, `json`, `argparse`, `logging`, `pytest`, GitHub Actions, `ruff`.
-- **Репозиторий:** `morikifa/taskflow-cli-core` (создать) — расхождение R3.
-- **Статус на 05.09.2026:** **5%** — есть только утверждённая структура папок и план. Кода в Git нет. Продакшн-признаки: 0 из 10.
+- **Репозиторий:** `morikifa/taskflow-cli-core` — **отдельный публичный репозиторий** (решение ученика от 05.09.2026, расхождение R3 закрыто). `python-core-practice` остаётся тренажёром и памятью наставника.
+- **Статус на 05.09.2026:** **5%** — есть только утверждённая структура папок и план. Кода в Git нет. Продакшн-признаки: 0 из 10 (Docker для CLI исключён из обязательных — R2).
+
+### Команды создания репозитория (выполнять на своей машине в WSL2)
+```bash
+# 1. Создать пустой публичный репозиторий на GitHub (без README, без .gitignore, без лицензии —
+#    иначе при первом пуше получишь конфликт историй и придётся делать pull --rebase)
+#    В браузере: github.com/new → Owner: morikifa → Name: taskflow-cli-core → Public → Create
+
+# 2. Локальная инициализация
+mkdir -p ~/dev/taskflow-cli-core && cd ~/dev/taskflow-cli-core
+git init -b main
+python3 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip
+pip install pytest pytest-cov ruff
+mkdir -p src/taskflow tests docs/journal .github/workflows
+touch src/taskflow/__init__.py tests/__init__.py
+
+# 3. .gitignore — взять из python-core-practice/.gitignore (тот же набор правил)
+# 4. Первый коммит и пуш
+git add .gitignore pyproject.toml README.md
+git commit -m "chore: project skeleton and tooling config"
+git remote add origin https://github.com/morikifa/taskflow-cli-core.git
+git push -u origin main
+```
+**Проверка после пуша:** открыть `github.com/morikifa/taskflow-cli-core` в режиме инкогнито — репозиторий должен быть виден без логина. Невидимый (private) репозиторий в анкете = минус.
 
 ### Структура папок (канон)
 ```
